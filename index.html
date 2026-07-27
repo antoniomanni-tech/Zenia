@@ -20,15 +20,15 @@
   body{margin:0;background:var(--bg);font-family:'Source Sans 3',sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
   h1,h2,h3,.brand{font-family:'Manrope',sans-serif}
   .app{display:flex;min-height:100vh}
-  .sidebar{width:240px;background:linear-gradient(180deg,var(--navy),var(--navy2));color:#fff;padding:26px 16px;flex-shrink:0;box-shadow:2px 0 12px rgba(0,0,0,0.08);position:relative}
+  .sidebar{width:240px;background:var(--card);color:var(--text);padding:26px 16px;flex-shrink:0;border-right:1px solid var(--border);position:relative}
   .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;margin-bottom:8px;padding:0 8px}
   .brand .logo{width:30px;height:30px;background:linear-gradient(135deg,var(--teal),var(--teal-dark));border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(20,184,166,0.35)}
   .brand .logo svg{width:16px;height:16px}
-  .sidebar-sub{font-size:11px;color:#7C8AA5;padding:0 8px;margin-bottom:24px;letter-spacing:.03em}
-  .nav-item{padding:10px 12px;border-radius:8px;font-size:14px;color:#B8C2D6;cursor:pointer;margin-bottom:2px;display:flex;gap:10px;align-items:center;transition:background .15s,color .15s}
+  .sidebar-sub{font-size:11px;color:var(--text2);padding:0 8px;margin-bottom:24px;letter-spacing:.03em}
+  .nav-item{padding:10px 12px;border-radius:8px;font-size:14px;color:var(--text2);cursor:pointer;margin-bottom:2px;display:flex;gap:10px;align-items:center;transition:background .15s,color .15s}
   .nav-item svg{width:16px;height:16px;flex-shrink:0;opacity:.85}
-  .nav-item:hover{background:rgba(255,255,255,0.06);color:#fff}
-  .nav-item.active{background:rgba(255,255,255,0.12);color:#fff;font-weight:600}
+  .nav-item:hover{background:rgba(11,37,69,0.05);color:var(--text)}
+  .nav-item.active{background:rgba(20,184,166,0.12);color:var(--navy);font-weight:600}
   .main{flex:1;padding:36px 44px;max-width:1240px}
   h1.page-title{font-size:25px;margin:0;letter-spacing:-.01em}
   .subtitle{color:var(--text2);font-size:14px;margin-top:5px;display:flex;align-items:center;gap:6px}
@@ -224,14 +224,14 @@ function sidebarHTML(activo, nombreEmpresa) {
   const item = (id, label, icon) => `<div class="nav-item ${activo===id?'active':''}" onclick="irA('${id}')">${icon}${label}</div>`;
   return `
   <div class="sidebar">
-    <div class="brand"><img src="${ZENIA_LOGO_SIDEBAR}" alt="Zenia" style="height:34px;width:auto;display:block">Zenia</div>
+    <div class="brand"><img src="${ZENIA_LOGO}" alt="Zenia" style="height:34px;width:auto;display:block">Zenia</div>
     <div class="sidebar-sub">${(nombreEmpresa || '').toUpperCase()}</div>
     ${item('panel','Panel de proyectos','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>')}
     ${item('reportes','Reportes ejecutivos','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>')}
     ${item('configuracion','Configuración','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>')}
     ${item('cuenta','Mi cuenta','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>')}
     <div style="position:absolute;bottom:26px;left:16px;right:16px">
-      <div style="font-size:12.5px;color:#B8C2D6;padding:8px 8px 6px">${session && session.user ? session.user.email : ''}</div>
+      <div style="font-size:12.5px;color:var(--text2);padding:8px 8px 6px">${session && session.user ? session.user.email : ''}</div>
       <div class="nav-item" onclick="cerrarSesion()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Salir</div>
     </div>
   </div>`;
