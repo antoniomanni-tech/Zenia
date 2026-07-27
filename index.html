@@ -83,6 +83,9 @@
   #asistente-input-row{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
   #asistente-input-row input{flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:20px;font-size:13.5px;font-family:inherit}
   #asistente-input-row button{width:36px;height:36px;border-radius:50%;background:var(--teal);color:#fff;border:none;cursor:pointer;flex-shrink:0}
+  .asis-sugerencias{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .asis-sugerencias button{font-size:12px;padding:6px 10px;border-radius:14px;border:1px solid var(--border);background:var(--card);color:var(--text2);cursor:pointer}
+  .asis-sugerencias button:hover{background:rgba(20,184,166,0.1);color:var(--teal-dark);border-color:var(--teal)}
 
   @media (max-width: 760px) {
     .app{flex-direction:column}
@@ -201,7 +204,14 @@ function initAsistenteDemo() {
         </div>
         <span onclick="document.getElementById('asistente-panel').style.display='none'" style="cursor:pointer;font-size:18px;color:var(--text2)">×</span>
       </div>
-      <div id="asistente-mensajes"><div class="asis-msg asis-bot">Hola 👋 Pregúntame por ejemplo: "¿qué proyectos están atrasados?" o "¿cómo va Constructora Andes?"</div></div>
+      <div id="asistente-mensajes"><div class="asis-msg asis-bot">Hola 👋 Pregúntame por estado, un cliente, un responsable, o toca una sugerencia:</div>
+        <div class="asis-sugerencias">
+          <button onclick="preguntarAsistente('¿qué proyectos están atrasados?')">Atrasados</button>
+          <button onclick="preguntarAsistente('¿cuál es el más urgente?')">Más urgente</button>
+          <button onclick="preguntarAsistente('¿qué proyecto vence próximo?')">Próximo vencimiento</button>
+          <button onclick="preguntarAsistente('dame un resumen')">Resumen</button>
+        </div>
+      </div>
       <div id="asistente-input-row">
         <input id="asistente-input" placeholder="Escribe tu pregunta…">
         <button onclick="preguntarAsistente()">➤</button>
@@ -215,9 +225,9 @@ function initAsistenteDemo() {
   document.getElementById('asistente-input').addEventListener('keydown', e => { if (e.key === 'Enter') preguntarAsistente(); });
 }
 
-async function preguntarAsistente() {
+async function preguntarAsistente(preguntaSugerida) {
   const input = document.getElementById('asistente-input');
-  const pregunta = input.value.trim();
+  const pregunta = (preguntaSugerida || input.value).trim();
   if (!pregunta) return;
   const msgs = document.getElementById('asistente-mensajes');
   msgs.innerHTML += `<div class="asis-msg asis-user">${pregunta}</div>`;
@@ -226,11 +236,12 @@ async function preguntarAsistente() {
   msgs.scrollTop = msgs.scrollHeight;
 
   try {
-    const [proyectos, riesgos] = await Promise.all([
+    const [proyectos, riesgos, perfiles] = await Promise.all([
       sb(`proyectos?select=*`),
-      sb(`riesgos?select=*&abierto=eq.true`)
+      sb(`riesgos?select=*&abierto=eq.true`),
+      sb(`perfiles?select=id,nombre`)
     ]);
-    const respuesta = calcularRespuestaAsistente(pregunta, proyectos, riesgos);
+    const respuesta = calcularRespuestaAsistente(pregunta, proyectos, riesgos, perfiles);
     document.getElementById('asis-pensando').outerHTML = `<div class="asis-msg asis-bot">${respuesta}</div>`;
   } catch (e) {
     document.getElementById('asis-pensando').outerHTML = `<div class="asis-msg asis-bot">No pude consultar los datos ahora mismo.</div>`;
@@ -238,20 +249,58 @@ async function preguntarAsistente() {
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-function calcularRespuestaAsistente(pregunta, proyectos, riesgos) {
-  const q = pregunta.toLowerCase();
+function calcularRespuestaAsistente(pregunta, proyectos, riesgos, perfiles) {
+  const q = pregunta.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const total = proyectos.length;
+  perfiles = perfiles || [];
 
-  // Buscar si menciona el nombre de un cliente o proyecto especifico
-  const encontrado = proyectos.find(p =>
-    (p.cliente && q.includes(p.cliente.toLowerCase())) ||
-    q.includes(p.nombre.toLowerCase().slice(0,10))
-  );
-  if (encontrado) {
+  const saludos = ['hola','buenas','buenos dias','buenas tardes','buenas noches','hey','ola'];
+  if (saludos.some(s => q === s || q.startsWith(s + ' ') || q.startsWith(s+','))) {
+    return `¡Hola! Tengo datos de ${total} proyectos listos para consultar. Pregúntame por estado, por un cliente, o por un responsable.`;
+  }
+  if (q.includes('gracias')) return 'De nada 🙂 ¿Algo más?';
+
+  // Coincidencia difusa: nombre de proyecto o cliente, comparando palabra por palabra
+  const palabrasQ = q.split(/\s+/).filter(w => w.length > 3);
+  let encontrado = null, mejorPuntaje = 0;
+  for (const p of proyectos) {
+    const texto = ((p.nombre||'') + ' ' + (p.cliente||'')).toLowerCase();
+    const puntaje = palabrasQ.filter(w => texto.includes(w)).length;
+    if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; encontrado = p; }
+  }
+  if (encontrado && mejorPuntaje > 0) {
     const riesgoDe = riesgos.find(r => r.proyecto_id === encontrado.id);
+    const responsable = perfiles.find(pf => pf.id === encontrado.responsable_id);
     return `"${encontrado.nombre}"${encontrado.cliente ? ' ('+encontrado.cliente+')' : ''} está <strong>${ESTADO_LABEL[encontrado.estado]}</strong>, con ${encontrado.avance_pct}% de avance` +
-      (encontrado.fecha_limite ? `, fecha límite ${fechaCorta(encontrado.fecha_limite)}` : '') +
-      (riesgoDe ? `. Riesgo abierto: ${riesgoDe.descripcion}` : '. Sin riesgos abiertos.') ;
+      (responsable ? `. Responsable: ${responsable.nombre}` : '') +
+      (encontrado.fecha_limite ? `. Fecha límite: ${fechaCorta(encontrado.fecha_limite)}` : '') +
+      (riesgoDe ? `. Riesgo abierto: ${riesgoDe.descripcion}` : '. Sin riesgos abiertos.');
+  }
+
+  // Preguntas por responsable especifico
+  const respMencionado = perfiles.find(pf => q.includes(pf.nombre.toLowerCase().split(' ')[0]));
+  if (respMencionado) {
+    const suyos = proyectos.filter(p => p.responsable_id === respMencionado.id);
+    if (!suyos.length) return `${respMencionado.nombre} no tiene proyectos asignados.`;
+    const avg = Math.round(suyos.reduce((s,p)=>s+p.avance_pct,0)/suyos.length);
+    return `${respMencionado.nombre} tiene ${suyos.length} proyecto${suyos.length>1?'s':''} (avance promedio ${avg}%): ` + suyos.map(p=>`"${p.nombre}" (${ESTADO_LABEL[p.estado]})`).join(', ') + '.';
+  }
+
+  // Peor proyecto / mas urgente / que anda mal
+  if (q.includes('peor') || q.includes('urgente') || q.includes('critico') || q.includes('anda mal') || q.includes('mas grave') || q.includes('prioridad')) {
+    const candidatos = proyectos.filter(p=>p.estado==='atrasado').sort((a,b)=>a.avance_pct-b.avance_pct);
+    if (!candidatos.length) return 'No hay proyectos atrasados; nada crítico en este momento. 🎉';
+    const peor = candidatos[0];
+    const riesgoDe = riesgos.find(r=>r.proyecto_id===peor.id);
+    return `El más urgente es "${peor.nombre}"${peor.cliente?' ('+peor.cliente+')':''}, atrasado con solo ${peor.avance_pct}% de avance` + (riesgoDe ? `. Riesgo: ${riesgoDe.descripcion}` : '') + '.';
+  }
+
+  // Proxima fecha limite / que vence pronto
+  if (q.includes('vence') || q.includes('proxim') || q.includes('plazo') || q.includes('fecha limite')) {
+    const conFecha = proyectos.filter(p=>p.fecha_limite && p.estado!=='completado').sort((a,b)=>new Date(a.fecha_limite)-new Date(b.fecha_limite));
+    if (!conFecha.length) return 'No hay proyectos con fecha límite pendiente.';
+    const prox = conFecha[0];
+    return `El próximo en vencer es "${prox.nombre}", el ${fechaCorta(prox.fecha_limite)} (${prox.avance_pct}% de avance).`;
   }
 
   if (q.includes('atrasad')) {
@@ -262,13 +311,20 @@ function calcularRespuestaAsistente(pregunta, proyectos, riesgos) {
 
   if (q.includes('riesgo')) {
     if (!riesgos.length) return 'No hay riesgos abiertos registrados.';
-    return `Hay ${riesgos.length} riesgo${riesgos.length>1?'s':''} abierto${riesgos.length>1?'s':''}. El de mayor severidad: ` + (riesgos.find(r=>r.severidad==='alta')?.descripcion || riesgos[0].descripcion);
+    const alta = riesgos.filter(r=>r.severidad==='alta');
+    return `Hay ${riesgos.length} riesgo${riesgos.length>1?'s':''} abierto${riesgos.length>1?'s':''}` + (alta.length ? `, ${alta.length} de severidad alta` : '') + '. El más urgente: ' + (alta[0] || riesgos[0]).descripcion;
   }
 
-  if (q.includes('avance') || q.includes('cumplim') || q.includes('estado general') || q.includes('resumen')) {
+  if (q.includes('cuantos proyectos') || q.includes('cuantos hay') || q.includes('total de proyecto')) {
+    return `Tienes ${total} proyectos en total.`;
+  }
+
+  if (q.includes('avance') || q.includes('cumplim') || q.includes('como va todo') || q.includes('estado general') || q.includes('resumen') || q.includes('como estamos')) {
     const enCurso = proyectos.filter(p=>p.estado==='en_curso').length;
+    const enRiesgo = proyectos.filter(p=>p.estado==='en_riesgo').length;
+    const atrasados = proyectos.filter(p=>p.estado==='atrasado').length;
     const avgAvance = total ? Math.round(proyectos.reduce((s,p)=>s+p.avance_pct,0)/total) : 0;
-    return `El portafolio tiene ${total} proyectos, ${enCurso} en curso, con un avance promedio de ${avgAvance}%.`;
+    return `Portafolio de ${total} proyectos: ${enCurso} en curso, ${enRiesgo} en riesgo, ${atrasados} atrasados. Avance promedio: ${avgAvance}%.`;
   }
 
   if (q.includes('complet')) {
@@ -276,7 +332,7 @@ function calcularRespuestaAsistente(pregunta, proyectos, riesgos) {
     return completados.length ? `${completados.length} proyecto${completados.length>1?'s':''} completado${completados.length>1?'s':''}: ` + completados.map(p=>p.nombre).join(', ') + '.' : 'Aún no hay proyectos completados.';
   }
 
-  return `Tengo datos de ${total} proyectos. Puedes preguntarme por estado (atrasados, en riesgo, completados), por el nombre de un cliente, o pedir un resumen general.`;
+  return `No estoy seguro de haber entendido. Puedes preguntarme por: estado (atrasados, en riesgo, completados), un cliente o proyecto puntual, un responsable, el más urgente, o el próximo vencimiento.`;
 }
 
 let perfilesCache = [];
