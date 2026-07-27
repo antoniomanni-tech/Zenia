@@ -71,6 +71,19 @@
   .filtro-pill:hover{background:rgba(127,127,127,0.06)}
   .filtro-pill.active{background:var(--navy);color:#fff;border-color:var(--navy)}
 
+  #asistente-widget{position:fixed;bottom:22px;right:22px;z-index:200}
+  #asistente-btn{width:52px;height:52px;border-radius:50%;background:var(--navy);border:none;box-shadow:0 6px 18px rgba(11,37,69,0.35);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  #asistente-btn:hover{background:var(--navy2)}
+  #asistente-panel{display:none;flex-direction:column;position:fixed;bottom:84px;right:22px;width:340px;max-width:90vw;height:440px;max-height:70vh;background:var(--card);border-radius:16px;box-shadow:0 20px 50px rgba(16,24,40,0.25);border:1px solid var(--border);overflow:hidden}
+  #asistente-header{display:flex;justify-content:space-between;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--border)}
+  #asistente-mensajes{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+  .asis-msg{font-size:13.5px;line-height:1.4;padding:9px 12px;border-radius:12px;max-width:85%}
+  .asis-bot{background:rgba(20,184,166,0.1);color:var(--text);align-self:flex-start;border-bottom-left-radius:3px}
+  .asis-user{background:var(--navy);color:#fff;align-self:flex-end;border-bottom-right-radius:3px}
+  #asistente-input-row{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
+  #asistente-input-row input{flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:20px;font-size:13.5px;font-family:inherit}
+  #asistente-input-row button{width:36px;height:36px;border-radius:50%;background:var(--teal);color:#fff;border:none;cursor:pointer;flex-shrink:0}
+
   @media (max-width: 760px) {
     .app{flex-direction:column}
     .sidebar{width:100%;padding:16px 18px;position:relative;box-shadow:none}
@@ -161,6 +174,7 @@ if (codigoPublico) {
 }
 
 function route() {
+  if (session) initAsistenteDemo();
   if (currentView === 'panel') renderApp();
   else if (currentView === 'reportes') renderReportes();
   else if (currentView === 'configuracion') renderConfiguracion();
@@ -170,9 +184,105 @@ function route() {
 
 function irA(vista) { currentView = vista; route(); }
 function verDetalleProyecto(id) { proyectoDetalleId = id; currentView = 'detalle'; route(); }
+
+function initAsistenteDemo() {
+  if (document.getElementById('asistente-widget')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'asistente-widget';
+  wrap.innerHTML = `
+    <button id="asistente-btn" title="Asistente (demo)">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 00-7 7c0 3 1.5 5 3 6.5V19a1 1 0 001 1h6a1 1 0 001-1v-3.5c1.5-1.5 3-3.5 3-6.5a7 7 0 00-7-7z"/><path d="M9 21h6"/></svg>
+    </button>
+    <div id="asistente-panel">
+      <div id="asistente-header">
+        <div>
+          <div style="font-weight:700;font-size:14px">Asistente</div>
+          <div style="font-size:11px;color:var(--text2)">Demo · responde con datos reales del portafolio</div>
+        </div>
+        <span onclick="document.getElementById('asistente-panel').style.display='none'" style="cursor:pointer;font-size:18px;color:var(--text2)">×</span>
+      </div>
+      <div id="asistente-mensajes"><div class="asis-msg asis-bot">Hola 👋 Pregúntame por ejemplo: "¿qué proyectos están atrasados?" o "¿cómo va Constructora Andes?"</div></div>
+      <div id="asistente-input-row">
+        <input id="asistente-input" placeholder="Escribe tu pregunta…">
+        <button onclick="preguntarAsistente()">➤</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('asistente-btn').onclick = () => {
+    const panel = document.getElementById('asistente-panel');
+    panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+  };
+  document.getElementById('asistente-input').addEventListener('keydown', e => { if (e.key === 'Enter') preguntarAsistente(); });
+}
+
+async function preguntarAsistente() {
+  const input = document.getElementById('asistente-input');
+  const pregunta = input.value.trim();
+  if (!pregunta) return;
+  const msgs = document.getElementById('asistente-mensajes');
+  msgs.innerHTML += `<div class="asis-msg asis-user">${pregunta}</div>`;
+  input.value = '';
+  msgs.innerHTML += `<div class="asis-msg asis-bot" id="asis-pensando">Pensando…</div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    const [proyectos, riesgos] = await Promise.all([
+      sb(`proyectos?select=*`),
+      sb(`riesgos?select=*&abierto=eq.true`)
+    ]);
+    const respuesta = calcularRespuestaAsistente(pregunta, proyectos, riesgos);
+    document.getElementById('asis-pensando').outerHTML = `<div class="asis-msg asis-bot">${respuesta}</div>`;
+  } catch (e) {
+    document.getElementById('asis-pensando').outerHTML = `<div class="asis-msg asis-bot">No pude consultar los datos ahora mismo.</div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function calcularRespuestaAsistente(pregunta, proyectos, riesgos) {
+  const q = pregunta.toLowerCase();
+  const total = proyectos.length;
+
+  // Buscar si menciona el nombre de un cliente o proyecto especifico
+  const encontrado = proyectos.find(p =>
+    (p.cliente && q.includes(p.cliente.toLowerCase())) ||
+    q.includes(p.nombre.toLowerCase().slice(0,10))
+  );
+  if (encontrado) {
+    const riesgoDe = riesgos.find(r => r.proyecto_id === encontrado.id);
+    return `"${encontrado.nombre}"${encontrado.cliente ? ' ('+encontrado.cliente+')' : ''} está <strong>${ESTADO_LABEL[encontrado.estado]}</strong>, con ${encontrado.avance_pct}% de avance` +
+      (encontrado.fecha_limite ? `, fecha límite ${fechaCorta(encontrado.fecha_limite)}` : '') +
+      (riesgoDe ? `. Riesgo abierto: ${riesgoDe.descripcion}` : '. Sin riesgos abiertos.') ;
+  }
+
+  if (q.includes('atrasad')) {
+    const atrasados = proyectos.filter(p => p.estado === 'atrasado');
+    if (!atrasados.length) return 'Ningún proyecto está atrasado en este momento. 🎉';
+    return `Hay ${atrasados.length} proyecto${atrasados.length>1?'s':''} atrasado${atrasados.length>1?'s':''}: ` + atrasados.map(p=>`"${p.nombre}" (${p.avance_pct}%)`).join(', ') + '.';
+  }
+
+  if (q.includes('riesgo')) {
+    if (!riesgos.length) return 'No hay riesgos abiertos registrados.';
+    return `Hay ${riesgos.length} riesgo${riesgos.length>1?'s':''} abierto${riesgos.length>1?'s':''}. El de mayor severidad: ` + (riesgos.find(r=>r.severidad==='alta')?.descripcion || riesgos[0].descripcion);
+  }
+
+  if (q.includes('avance') || q.includes('cumplim') || q.includes('estado general') || q.includes('resumen')) {
+    const enCurso = proyectos.filter(p=>p.estado==='en_curso').length;
+    const avgAvance = total ? Math.round(proyectos.reduce((s,p)=>s+p.avance_pct,0)/total) : 0;
+    return `El portafolio tiene ${total} proyectos, ${enCurso} en curso, con un avance promedio de ${avgAvance}%.`;
+  }
+
+  if (q.includes('complet')) {
+    const completados = proyectos.filter(p=>p.estado==='completado');
+    return completados.length ? `${completados.length} proyecto${completados.length>1?'s':''} completado${completados.length>1?'s':''}: ` + completados.map(p=>p.nombre).join(', ') + '.' : 'Aún no hay proyectos completados.';
+  }
+
+  return `Tengo datos de ${total} proyectos. Puedes preguntarme por estado (atrasados, en riesgo, completados), por el nombre de un cliente, o pedir un resumen general.`;
+}
+
 let perfilesCache = [];
 let empresaCache = null;
 let proyectoDetalleId = null;
+let proyectoDetalleActual = null;
 let proyectosPanelCache = [];
 let perfilPorIdPanelCache = {};
 let filtroPanelActual = 'todos';
@@ -620,15 +730,18 @@ async function guardarNuevoProyecto() {
 async function renderDetalleProyecto(id) {
   root.innerHTML = '<div class="loading">Cargando proyecto…</div>';
   try {
-    const [proyectos, hitos, riesgos, empresas] = await Promise.all([
+    const [proyectos, hitos, riesgos, empresas, perfiles] = await Promise.all([
       sb(`proyectos?id=eq.${id}&select=*`),
       sb(`hitos?proyecto_id=eq.${id}&order=orden.asc`),
       sb(`riesgos?proyecto_id=eq.${id}&order=created_at.desc`),
-      sb(`empresas?select=*`)
+      sb(`empresas?select=*`),
+      sb(`perfiles?select=id,nombre`)
     ]);
     const p = proyectos[0];
     const empresa = empresas[0] || {};
     if (!p) { root.innerHTML = '<div class="loading">Proyecto no encontrado.</div>'; return; }
+    proyectoDetalleActual = p;
+    perfilesCache = perfiles;
 
     root.innerHTML = `
     <div class="app">
@@ -640,7 +753,11 @@ async function renderDetalleProyecto(id) {
             <h1 class="page-title">${p.nombre}</h1>
             <div class="subtitle">${p.cliente || ''}${p.fecha_inicio || p.fecha_limite ? ` · ${p.fecha_inicio ? fechaCorta(p.fecha_inicio) : '—'} → ${fechaCorta(p.fecha_limite)}` : ''}</div>
           </div>
-          <span class="pill ${ESTADO_BG[p.estado]}" style="font-size:13px;padding:6px 14px"><span class="dot ${ESTADO_CLASS[p.estado]}"></span>${ESTADO_LABEL[p.estado]}</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="pill ${ESTADO_BG[p.estado]}" style="font-size:13px;padding:6px 14px"><span class="dot ${ESTADO_CLASS[p.estado]}"></span>${ESTADO_LABEL[p.estado]}</span>
+            <button class="btn" style="background:#fff;color:var(--text);border:1px solid var(--border);padding:8px 14px" onclick="abrirModalEditarProyecto()">Editar</button>
+            <button class="btn" style="background:#fff;color:var(--red);border:1px solid var(--red-bg);padding:8px 14px" onclick="eliminarProyecto('${p.id}')">Eliminar</button>
+          </div>
         </div>
 
         <div class="card">
@@ -702,10 +819,91 @@ async function renderDetalleProyecto(id) {
           </div>
         </div>
       </div>
+    </div>
+    <div id="modal-editar-overlay" class="modal-overlay" style="display:none">
+      <div class="modal-box">
+        <h3 style="margin:0 0 4px">Editar proyecto</h3>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:18px">Actualiza los datos generales del proyecto.</div>
+        <label class="form-label" style="margin-top:0">Nombre del proyecto</label>
+        <input id="ed-nombre" class="form-input" value="${p.nombre.replace(/"/g,'&quot;')}">
+        <label class="form-label">Cliente</label>
+        <input id="ed-cliente" class="form-input" value="${(p.cliente||'').replace(/"/g,'&quot;')}">
+        <div style="display:flex;gap:14px">
+          <div style="flex:1"><label class="form-label">Responsable</label>
+            <select id="ed-responsable" class="form-input">${perfiles.map(pf=>`<option value="${pf.id}" ${pf.id===p.responsable_id?'selected':''}>${pf.nombre}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px">
+          <div style="flex:1"><label class="form-label">Fecha de inicio</label>
+            <input id="ed-fecha-inicio" type="date" class="form-input" value="${p.fecha_inicio||''}">
+          </div>
+          <div style="flex:1"><label class="form-label">Fecha límite</label>
+            <input id="ed-fecha-limite" type="date" class="form-input" value="${p.fecha_limite||''}">
+          </div>
+        </div>
+        <div id="ed-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none"></div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+          <button class="btn" style="background:#fff;color:var(--text);border:1px solid var(--border)" onclick="cerrarModalEditarProyecto()">Cancelar</button>
+          <button class="btn" id="ed-guardar" onclick="guardarEdicionProyecto('${p.id}')">Guardar cambios</button>
+        </div>
+      </div>
     </div>`;
   } catch (e) {
     if (!session) { return; }
     root.innerHTML = `<div class="loading">Error cargando el proyecto: ${e.message}</div>`;
+  }
+}
+
+function abrirModalEditarProyecto() {
+  const overlay = document.getElementById('modal-editar-overlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+function cerrarModalEditarProyecto() {
+  const overlay = document.getElementById('modal-editar-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function guardarEdicionProyecto(id) {
+  const nombre = document.getElementById('ed-nombre').value.trim();
+  const cliente = document.getElementById('ed-cliente').value.trim();
+  const responsable_id = document.getElementById('ed-responsable').value;
+  const fecha_inicio = document.getElementById('ed-fecha-inicio').value;
+  const fecha_limite = document.getElementById('ed-fecha-limite').value;
+  const errorEl = document.getElementById('ed-error');
+  const btn = document.getElementById('ed-guardar');
+
+  if (!nombre) {
+    errorEl.textContent = 'El nombre del proyecto es obligatorio.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  errorEl.style.display = 'none';
+  btn.textContent = 'Guardando…'; btn.disabled = true;
+  try {
+    await sbWrite(`proyectos?id=eq.${id}`, 'PATCH', {
+      nombre, cliente: cliente || null, responsable_id: responsable_id || null,
+      fecha_inicio: fecha_inicio || null, fecha_limite: fecha_limite || null
+    });
+    cerrarModalEditarProyecto();
+    renderDetalleProyecto(id);
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.style.display = 'block';
+    btn.textContent = 'Guardar cambios'; btn.disabled = false;
+  }
+}
+
+async function eliminarProyecto(id) {
+  const nombre = proyectoDetalleActual ? proyectoDetalleActual.nombre : 'este proyecto';
+  if (!confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer y borrará también sus hitos y riesgos.`)) return;
+  try {
+    await sbWrite(`hitos?proyecto_id=eq.${id}`, 'DELETE', {});
+    await sbWrite(`riesgos?proyecto_id=eq.${id}`, 'DELETE', {});
+    await sbWrite(`actualizaciones_semanales?proyecto_id=eq.${id}`, 'DELETE', {});
+    await sbWrite(`proyectos?id=eq.${id}`, 'DELETE', {});
+    irA('panel');
+  } catch (e) {
+    alert('No se pudo eliminar el proyecto: ' + e.message);
   }
 }
 
@@ -822,6 +1020,8 @@ async function hacerLogin() {
 function cerrarSesion() {
   session = null;
   localStorage.removeItem('zenia_session');
+  const widget = document.getElementById('asistente-widget');
+  if (widget) widget.remove();
   renderLogin();
 }
 function renderRegistro() {
