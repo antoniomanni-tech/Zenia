@@ -692,6 +692,8 @@ async function renderConfiguracion() {
       sb(`perfiles?select=*`)
     ]);
     const empresa = empresas[0] || {};
+    const miPerfil = perfiles.find(p => p.auth_user_id === (session.user && session.user.id));
+    const soyAdmin = miPerfil && miPerfil.rol === 'admin';
 
     root.innerHTML = `
     <div class="app">
@@ -711,14 +713,20 @@ async function renderConfiguracion() {
         </div>
 
         <div class="card">
-          <h3 style="margin:0 0 16px">Usuarios y equipo</h3>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="margin:0">Usuarios y equipo</h3>
+            ${soyAdmin ? `<button class="btn" style="padding:8px 14px" onclick="abrirModalAgregarUsuario()">+ Agregar usuario</button>` : ''}
+          </div>
           ${perfiles.map(p => `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
               <div style="display:flex;align-items:center;gap:10px">
                 <div style="width:32px;height:32px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${iniciales(p.nombre)}</div>
                 <div><div style="font-weight:600;font-size:14px">${p.nombre}</div><div style="font-size:12.5px;color:var(--text2)">${p.email}</div></div>
               </div>
-              <span class="pill g-bg">${p.rol === 'admin' ? 'Admin' : p.rol === 'viewer' ? 'Viewer' : 'Editor'}</span>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span class="pill ${p.rol==='admin'?'b-bg':'g-bg'}">${p.rol === 'admin' ? 'Admin' : p.rol === 'viewer' ? 'Viewer' : 'Editor'}</span>
+                ${soyAdmin && p.id !== miPerfil.id ? `<button class="btn" style="padding:5px 10px;font-size:12px;background:#fff;color:var(--red);border:1px solid var(--red-bg)" onclick="eliminarUsuario('${p.id}','${p.nombre.replace(/'/g,"")}')">Eliminar</button>` : ''}
+              </div>
             </div>`).join('')}
         </div>
 
@@ -727,6 +735,29 @@ async function renderConfiguracion() {
           <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span style="font-size:14px">Alertas de proyectos atrasados</span><span class="pill g-bg">Activado</span></div>
           <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span style="font-size:14px">Resumen semanal por correo</span><span class="pill g-bg">Activado</span></div>
           <div style="display:flex;justify-content:space-between;padding:10px 0"><span style="font-size:14px">Nuevo riesgo reportado</span><span class="pill" style="background:#EEF0F2;color:var(--text2)">Desactivado</span></div>
+        </div>
+      </div>
+      <div id="modal-usuario-overlay" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+          <h3 style="margin:0 0 4px">Agregar usuario</h3>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:18px">Crea el acceso para un nuevo integrante del equipo.</div>
+          <label class="form-label" style="margin-top:0">Nombre completo</label>
+          <input id="us-nombre" class="form-input" placeholder="Ej: Pedro Álvarez">
+          <label class="form-label">Correo</label>
+          <input id="us-email" class="form-input" type="email" placeholder="pedro@omconsultores.cl">
+          <label class="form-label">Contraseña temporal</label>
+          <input id="us-pass" class="form-input" type="password" placeholder="Mínimo 6 caracteres">
+          <label class="form-label">Rol</label>
+          <select id="us-rol" class="form-input">
+            <option value="editor">Editor</option>
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+          </select>
+          <div id="us-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none"></div>
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+            <button class="btn" style="background:var(--card);color:var(--text);border:1px solid var(--border)" onclick="cerrarModalAgregarUsuario()">Cancelar</button>
+            <button class="btn" id="us-guardar" onclick="guardarNuevoUsuario('${empresa.id}')">Crear usuario</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -822,7 +853,7 @@ async function renderDetalleProyecto(id) {
           <div style="display:flex;align-items:center;gap:10px">
             <span class="pill ${ESTADO_BG[p.estado]}" style="font-size:13px;padding:6px 14px"><span class="dot ${ESTADO_CLASS[p.estado]}"></span>${ESTADO_LABEL[p.estado]}</span>
             <button class="btn" style="background:#fff;color:var(--text);border:1px solid var(--border);padding:8px 14px" onclick="abrirModalEditarProyecto()">Editar</button>
-            <button class="btn" style="background:#fff;color:var(--red);border:1px solid var(--red-bg);padding:8px 14px" onclick="eliminarProyecto('${p.id}')">Eliminar</button>
+            ${perfiles.find(pf => pf.auth_user_id === (session.user && session.user.id))?.rol === 'admin' ? `<button class="btn" style="background:#fff;color:var(--red);border:1px solid var(--red-bg);padding:8px 14px" onclick="eliminarProyecto('${p.id}')">Eliminar</button>` : ''}
           </div>
         </div>
 
@@ -1192,6 +1223,66 @@ async function crearCuentaEmpresa() {
     errorEl.textContent = e.message;
     errorEl.style.display = 'block';
     btn.textContent = 'Crear cuenta'; btn.disabled = false;
+  }
+}
+
+function abrirModalAgregarUsuario() {
+  const overlay = document.getElementById('modal-usuario-overlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+function cerrarModalAgregarUsuario() {
+  const overlay = document.getElementById('modal-usuario-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function guardarNuevoUsuario(empresaId) {
+  const nombre = document.getElementById('us-nombre').value.trim();
+  const email = document.getElementById('us-email').value.trim();
+  const password = document.getElementById('us-pass').value;
+  const rol = document.getElementById('us-rol').value;
+  const errorEl = document.getElementById('us-error');
+  const btn = document.getElementById('us-guardar');
+
+  if (!nombre || !email || password.length < 6) {
+    errorEl.textContent = 'Completa nombre, correo y una contraseña de al menos 6 caracteres.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  errorEl.style.display = 'none';
+  btn.textContent = 'Creando…'; btn.disabled = true;
+
+  try {
+    // Crear el usuario de autenticacion (no afecta la sesion del admin actual)
+    const resSignup = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const dataSignup = await resSignup.json();
+    if (!resSignup.ok) throw new Error(dataSignup.msg || dataSignup.error_description || 'No se pudo crear el acceso.');
+    const nuevoUserId = dataSignup.user ? dataSignup.user.id : (dataSignup.id || null);
+
+    // Crear el perfil vinculado, usando el token del admin (requiere permiso de admin)
+    await sbWrite('perfiles', 'POST', {
+      empresa_id: empresaId, nombre, email, rol, auth_user_id: nuevoUserId
+    });
+
+    cerrarModalAgregarUsuario();
+    renderConfiguracion();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.style.display = 'block';
+    btn.textContent = 'Crear usuario'; btn.disabled = false;
+  }
+}
+
+async function eliminarUsuario(perfilId, nombre) {
+  if (!confirm(`¿Eliminar a ${nombre} del equipo? Perderá acceso al sistema.`)) return;
+  try {
+    await sbWrite(`perfiles?id=eq.${perfilId}`, 'DELETE', {});
+    renderConfiguracion();
+  } catch (e) {
+    alert('No se pudo eliminar: ' + e.message);
   }
 }
 
