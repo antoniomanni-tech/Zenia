@@ -552,11 +552,12 @@ async function renderApp() {
 async function renderReportes() {
   root.innerHTML = '<div class="loading">Cargando reportes…</div>';
   try {
-    const [proyectos, perfiles, riesgos, empresas] = await Promise.all([
+    const [proyectos, perfiles, riesgos, empresas, actualizaciones] = await Promise.all([
       sb(`proyectos?select=*`),
       sb(`perfiles?select=id,nombre`),
       sb(`riesgos?select=*&abierto=eq.true`),
-      sb(`empresas?select=*`)
+      sb(`empresas?select=*`),
+      sb(`actualizaciones_semanales?select=*&order=created_at.desc`)
     ]);
     const empresa = empresas[0] || {};
     const perfilPorId = Object.fromEntries(perfiles.map(p => [p.id, p.nombre]));
@@ -590,18 +591,45 @@ async function renderReportes() {
     const atencion = proyectos.filter(p => p.estado==='en_riesgo' || p.estado==='atrasado');
     const enCursoLista = proyectos.filter(p => p.estado==='en_curso' || p.estado==='completado');
 
-    const proyectoPorId = Object.fromEntries(proyectos.map(p => [p.id, p]));
-    let resumenTexto;
+    // Tendencia real: comparar el avance actual de cada proyecto contra su actualizacion anterior
+    const historialPorProyecto = {};
+    actualizaciones.forEach(a => {
+      if (!historialPorProyecto[a.proyecto_id]) historialPorProyecto[a.proyecto_id] = [];
+      historialPorProyecto[a.proyecto_id].push(a);
+    });
+    let mejorTendencia = null, peorTendencia = null;
+    proyectos.forEach(p => {
+      const hist = historialPorProyecto[p.id];
+      if (hist && hist.length >= 2) {
+        const delta = hist[0].avance_pct - hist[1].avance_pct;
+        if (delta !== 0 && (!mejorTendencia || delta > mejorTendencia.delta)) mejorTendencia = { proyecto: p, delta };
+        if (delta !== 0 && (!peorTendencia || delta < peorTendencia.delta)) peorTendencia = { proyecto: p, delta };
+      }
+    });
+
+    const puntos = [];
     if (atencion.length === 0) {
-      resumenTexto = `Los ${total} proyectos del portafolio avanzan según lo planificado, con un cumplimiento de plazos del ${cumplimiento}% y sin riesgos abiertos de severidad alta.`;
+      puntos.push(`Los ${total} proyectos del portafolio avanzan según lo planificado, con un cumplimiento de plazos del ${cumplimiento}% y sin riesgos abiertos de severidad alta.`);
     } else {
       const atrasadosArr = atencion.filter(p=>p.estado==='atrasado').sort((a,b)=>a.avance_pct-b.avance_pct);
       const peor = atrasadosArr[0] || atencion[0];
       const riesgoDelPeor = riesgos.find(r => r.proyecto_id === peor.id);
-      resumenTexto = `${atencion.length} de ${total} proyecto${atencion.length>1?'s':''} requiere${atencion.length>1?'n':''} atención esta semana. El caso más crítico es "${peor.nombre}"${peor.cliente ? ' (' + peor.cliente + ')' : ''}, con ${peor.avance_pct}% de avance` +
-        (riesgoDelPeor ? `; principal riesgo: ${riesgoDelPeor.descripcion}` : '.') +
-        ` El resto del portafolio mantiene un cumplimiento de plazos del ${cumplimiento}%.`;
+      puntos.push(`${atencion.length} de ${total} proyecto${atencion.length>1?'s':''} requiere${atencion.length>1?'n':''} atención esta semana. El caso más crítico es "${peor.nombre}"${peor.cliente ? ' (' + peor.cliente + ')' : ''}, con ${peor.avance_pct}% de avance` +
+        (riesgoDelPeor ? `; principal riesgo: ${riesgoDelPeor.descripcion}` : '.'));
     }
+    if (riesgosAltos > 0) {
+      puntos.push(`Hay ${riesgosAltos} riesgo${riesgosAltos>1?'s':''} de severidad alta sin cerrar — conviene revisarlo${riesgosAltos>1?'s':''} antes de la próxima reunión con el cliente.`);
+    }
+    if (peorTendencia && peorTendencia.delta < -2) {
+      puntos.push(`"${peorTendencia.proyecto.nombre}" retrocedió ${Math.abs(peorTendencia.delta)} puntos de avance desde la última actualización.`);
+    }
+    if (mejorTendencia && mejorTendencia.delta > 5) {
+      puntos.push(`"${mejorTendencia.proyecto.nombre}" avanzó ${mejorTendencia.delta} puntos desde la última actualización — buen ritmo.`);
+    }
+    if (responsablesArr.length > 1) {
+      puntos.push(`${responsablesArr[0].nombre} lidera el avance promedio del equipo (${responsablesArr[0].avg}%).`);
+    }
+    puntos.push(`Cumplimiento de plazos general: ${cumplimiento}%. Avance promedio del portafolio: ${avancePromedio}%.`);
 
     root.innerHTML = `
     <div class="app">
@@ -612,16 +640,18 @@ async function renderReportes() {
             <h1 class="page-title">Reporte Ejecutivo de Portafolio</h1>
             <div class="subtitle"><span class="live-dot"></span>Generado automáticamente · ${fechaCorta(new Date().toISOString().slice(0,10))} · ${empresa.nombre || ''}</div>
           </div>
-          <button class="btn" onclick="window.print()">Descargar PDF</button>
+          <button class="btn" style="background:var(--blue)" onclick="window.print()">Descargar PDF</button>
         </div>
 
         <div class="card" style="background:linear-gradient(135deg,#0B2545,#16213A);color:#fff;border:none;display:flex;gap:14px;align-items:flex-start">
           <div style="width:34px;height:34px;border-radius:9px;background:rgba(20,184,166,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/></svg>
           </div>
-          <div>
-            <div style="font-size:11px;letter-spacing:.05em;color:#5EEAD4;text-transform:uppercase;font-weight:700;margin-bottom:4px">Resumen ejecutivo</div>
-            <div style="font-size:14.5px;line-height:1.5;color:#E4E8EC">${resumenTexto}</div>
+          <div style="flex:1">
+            <div style="font-size:11px;letter-spacing:.05em;color:#5EEAD4;text-transform:uppercase;font-weight:700;margin-bottom:8px">Resumen ejecutivo</div>
+            <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
+              ${puntos.slice(0,4).map(p => `<li style="font-size:14px;line-height:1.5;color:#E4E8EC">${p}</li>`).join('')}
+            </ul>
           </div>
         </div>
 
