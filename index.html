@@ -154,6 +154,7 @@ function sesionExpirada() {
 }
 
 const ESTADO_LABEL = { en_curso: 'En curso', en_riesgo: 'En riesgo', atrasado: 'Atrasado', completado: 'Completado' };
+const TIPO_CONTRATO_LABEL = { llave_en_mano: 'Llave en mano', por_hitos: 'Por hitos', tiempo_materiales: 'Tiempo y materiales' };
 const ESTADO_CLASS = { en_curso: 'g', en_riesgo: 'a', atrasado: 'r', completado: 'b' };
 const ESTADO_BG = { en_curso: 'g-bg', en_riesgo: 'a-bg', atrasado: 'r-bg', completado: 'b-bg' };
 const SEV_LABEL = { alta: 'Alta', media: 'Media', baja: 'Baja' };
@@ -528,6 +529,13 @@ async function renderApp() {
             <input id="np-fecha" type="date" class="form-input">
           </div>
         </div>
+        <label class="form-label">Tipo de contrato</label>
+        <select id="np-tipo-contrato" class="form-input">
+          <option value="">Sin definir</option>
+          <option value="llave_en_mano">Llave en mano</option>
+          <option value="por_hitos">Por hitos</option>
+          <option value="tiempo_materiales">Tiempo y materiales</option>
+        </select>
         <div id="np-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
           <button class="btn" style="background:var(--card);color:var(--text);border:1px solid var(--border)" onclick="cerrarModalNuevoProyecto()">Cancelar</button>
@@ -741,6 +749,7 @@ async function guardarNuevoProyecto() {
   const responsable_id = document.getElementById('np-responsable').value;
   const fecha_inicio = document.getElementById('np-fecha-inicio').value;
   const fecha_limite = document.getElementById('np-fecha').value;
+  const tipo_contrato = document.getElementById('np-tipo-contrato').value;
   const errorEl = document.getElementById('np-error');
   const btn = document.getElementById('np-guardar');
 
@@ -770,7 +779,8 @@ async function guardarNuevoProyecto() {
         estado: 'en_curso',
         avance_pct: 0,
         fecha_inicio: fecha_inicio || null,
-        fecha_limite: fecha_limite || null
+        fecha_limite: fecha_limite || null,
+        tipo_contrato: tipo_contrato || null
       })
     });
     if (!res.ok) throw new Error('No se pudo crear el proyecto (' + res.status + ')');
@@ -807,7 +817,7 @@ async function renderDetalleProyecto(id) {
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <h1 class="page-title">${p.nombre}</h1>
-            <div class="subtitle">${p.cliente || ''}${p.fecha_inicio || p.fecha_limite ? ` · ${p.fecha_inicio ? fechaCorta(p.fecha_inicio) : '—'} → ${fechaCorta(p.fecha_limite)}` : ''}</div>
+            <div class="subtitle">${p.cliente || ''}${p.fecha_inicio || p.fecha_limite ? ` · ${p.fecha_inicio ? fechaCorta(p.fecha_inicio) : '—'} → ${fechaCorta(p.fecha_limite)}` : ''}${p.tipo_contrato ? ` · ${TIPO_CONTRATO_LABEL[p.tipo_contrato]}` : ''}</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
             <span class="pill ${ESTADO_BG[p.estado]}" style="font-size:13px;padding:6px 14px"><span class="dot ${ESTADO_CLASS[p.estado]}"></span>${ESTADO_LABEL[p.estado]}</span>
@@ -897,6 +907,13 @@ async function renderDetalleProyecto(id) {
             <input id="ed-fecha-limite" type="date" class="form-input" value="${p.fecha_limite||''}">
           </div>
         </div>
+        <label class="form-label">Tipo de contrato</label>
+        <select id="ed-tipo-contrato" class="form-input">
+          <option value="" ${!p.tipo_contrato?'selected':''}>Sin definir</option>
+          <option value="llave_en_mano" ${p.tipo_contrato==='llave_en_mano'?'selected':''}>Llave en mano</option>
+          <option value="por_hitos" ${p.tipo_contrato==='por_hitos'?'selected':''}>Por hitos</option>
+          <option value="tiempo_materiales" ${p.tipo_contrato==='tiempo_materiales'?'selected':''}>Tiempo y materiales</option>
+        </select>
         <div id="ed-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
           <button class="btn" style="background:#fff;color:var(--text);border:1px solid var(--border)" onclick="cerrarModalEditarProyecto()">Cancelar</button>
@@ -925,6 +942,7 @@ async function guardarEdicionProyecto(id) {
   const responsable_id = document.getElementById('ed-responsable').value;
   const fecha_inicio = document.getElementById('ed-fecha-inicio').value;
   const fecha_limite = document.getElementById('ed-fecha-limite').value;
+  const tipo_contrato = document.getElementById('ed-tipo-contrato').value;
   const errorEl = document.getElementById('ed-error');
   const btn = document.getElementById('ed-guardar');
 
@@ -938,7 +956,8 @@ async function guardarEdicionProyecto(id) {
   try {
     await sbWrite(`proyectos?id=eq.${id}`, 'PATCH', {
       nombre, cliente: cliente || null, responsable_id: responsable_id || null,
-      fecha_inicio: fecha_inicio || null, fecha_limite: fecha_limite || null
+      fecha_inicio: fecha_inicio || null, fecha_limite: fecha_limite || null,
+      tipo_contrato: tipo_contrato || null
     });
     cerrarModalEditarProyecto();
     renderDetalleProyecto(id);
@@ -1241,29 +1260,54 @@ async function cambiarPassword() {
   }
   btn.textContent = 'Actualizar contraseña'; btn.disabled = false;
 }
+let donutContador = 0;
 function donutChartHTML(segmentos, total) {
+  const idBase = 'donut' + (donutContador++);
   const radio = 46, circun = 2 * Math.PI * radio;
   let acumulado = 0;
-  const arcos = segmentos.filter(s => s.value > 0).map(s => {
+  const arcos = segmentos.filter(s => s.value > 0).map((s, i) => {
     const frac = total ? s.value / total : 0;
     const largo = frac * circun;
     const offset = -acumulado * circun;
     acumulado += frac;
-    return `<circle cx="60" cy="60" r="${radio}" fill="none" stroke="${s.color}" stroke-width="16" stroke-dasharray="${largo} ${circun - largo}" stroke-dashoffset="${offset}" transform="rotate(-90 60 60)"/>`;
+    const pct = total ? Math.round(frac * 100) : 0;
+    return `<circle id="${idBase}-arc-${i}" cx="60" cy="60" r="${radio}" fill="none" stroke="${s.color}" stroke-width="16" stroke-dasharray="${largo} ${circun - largo}" stroke-dashoffset="${offset}" transform="rotate(-90 60 60)" style="cursor:pointer;transition:stroke-width .15s" onmouseenter="donutHover('${idBase}','${i}','${s.label}',${s.value},${pct})" onmouseleave="donutReset('${idBase}',${total})"/>`;
   }).join('');
-  const leyenda = segmentos.filter(s => s.value > 0).map(s => `
-    <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px">
-      <span style="width:9px;height:9px;border-radius:50%;background:${s.color};display:inline-block"></span>
+  const leyenda = segmentos.filter(s => s.value > 0).map((s, i) => {
+    const pct = total ? Math.round((s.value/total) * 100) : 0;
+    return `
+    <div id="${idBase}-leg-${i}" style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;padding:3px 6px;border-radius:6px;cursor:pointer;transition:background .15s" onmouseenter="donutHover('${idBase}','${i}','${s.label}',${s.value},${pct})" onmouseleave="donutReset('${idBase}',${total})">
+      <span style="width:9px;height:9px;border-radius:50%;background:${s.color};display:inline-block;flex-shrink:0"></span>
       <span style="color:var(--text2)">${s.label}</span><strong style="margin-left:auto">${s.value}</strong>
-    </div>`).join('') || '<div style="color:var(--text2);font-size:13px">Sin datos</div>';
+    </div>`;
+  }).join('') || '<div style="color:var(--text2);font-size:13px">Sin datos</div>';
   return `
   <div style="display:flex;align-items:center;gap:24px">
     <div style="position:relative;flex-shrink:0">
       <svg width="120" height="120" viewBox="0 0 120 120">${arcos}</svg>
-      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800">${total}</div>
+      <div id="${idBase}-center" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none">
+        <div style="font-size:22px;font-weight:800;line-height:1">${total}</div>
+      </div>
     </div>
     <div style="flex:1">${leyenda}</div>
   </div>`;
+}
+
+function donutHover(idBase, i, label, value, pct) {
+  document.querySelectorAll(`[id^="${idBase}-arc-"]`).forEach(el => el.setAttribute('stroke-width', '13'));
+  const arc = document.getElementById(`${idBase}-arc-${i}`);
+  if (arc) arc.setAttribute('stroke-width', '20');
+  const leg = document.getElementById(`${idBase}-leg-${i}`);
+  if (leg) leg.style.background = 'rgba(127,127,127,0.08)';
+  const center = document.getElementById(`${idBase}-center`);
+  if (center) center.innerHTML = `<div style="font-size:20px;font-weight:800;line-height:1">${pct}%</div><div style="font-size:10.5px;color:var(--text2);margin-top:3px">${label}</div>`;
+}
+
+function donutReset(idBase, total) {
+  document.querySelectorAll(`[id^="${idBase}-arc-"]`).forEach(el => el.setAttribute('stroke-width', '16'));
+  document.querySelectorAll(`[id^="${idBase}-leg-"]`).forEach(el => el.style.background = 'transparent');
+  const center = document.getElementById(`${idBase}-center`);
+  if (center) center.innerHTML = `<div style="font-size:22px;font-weight:800;line-height:1">${total}</div>`;
 }
 </script>
 </body>
